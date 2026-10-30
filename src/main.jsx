@@ -96,11 +96,38 @@ function SectionTitle({ eyebrow, title, copy, align = '' }) { return <div classN
 function Button({ to, children, variant = '', onClick, type = 'button' }) { return to ? <Link className={`button ${variant}`} to={to}>{children}<ArrowRight size={16} /></Link> : <button className={`button ${variant}`} onClick={onClick} type={type}>{children}<ArrowRight size={16} /></button>; }
 function Image({ src, alt, className = '', ...props }) { const resolvedSrc = src?.startsWith('/uploads/') ? `${API_ORIGIN}${src}` : src; return <img className={className} src={resolvedSrc || images.fallback} alt={alt} decoding="async" onError={(e) => { e.currentTarget.src = images.fallback; }} {...props} />; }
 
+function useServiceCatalogue(limit) {
+  const [state, setState] = useState({ items: [], loading: true, error: '' });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ items: [], loading: true, error: '' });
+    API.get('/services', { params: { limit }, signal: controller.signal })
+      .then(response => {
+        const items = response.data?.data?.items;
+        if (!Array.isArray(items)) throw new Error('Invalid service response');
+        if (!controller.signal.aborted) setState({ items, loading: false, error: '' });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ items: [], loading: false, error: 'We could not load the services. Please try again.' });
+      });
+    return () => controller.abort();
+  }, [limit, attempt]);
+  return { ...state, retry: () => setAttempt(value => value + 1) };
+}
+
+function CatalogueStatus({ loading, error, retry }) {
+  if (loading) return <div role="status" aria-label="Loading services"><div className="service-grid"><LoadingCards /></div></div>;
+  if (error) return <div className="empty-state" role="alert"><p>{error}</p><button className="button button-outline" onClick={retry}>Try again</button></div>;
+  return <EmptyState title="The menu is being prepared" copy="Contact the studio for available services and appointments." action={{ to: '/contact', label: 'Contact the studio' }} />;
+}
+
 function Home() {
   usePageTitle('Beauty Begins With You');
-  const [services, setServices] = useState([]);
+  const catalogue = useServiceCatalogue(3);
+  const services = catalogue.items;
   const [offers, setOffers] = useState([]);
-  useEffect(() => { Promise.all([API.get('/services', { params: { limit: 3 } }), API.get('/offers')]).then(([serviceResponse, offerResponse]) => { setServices(serviceResponse.data.data.items); setOffers(offerResponse.data.data); }).catch(() => { }); }, []);
+  useEffect(() => { API.get('/offers').then(response => setOffers(response.data.data)).catch(() => {}); }, []);
   return <>
     <section className="hero">
       <div className="hero-content"><Eyebrow icon={<span className="eyebrow-line" />}>Beauty begins with you</Eyebrow><h1>Come for the <em>glow.</em><br />Stay for the feeling.</h1><p className="hero-lede">An intimate beauty studio for makeup, hair, and skin rituals that make you feel more like yourself.</p><div className="hero-cta"><Button to="/booking">Book your makeover</Button><Link className="under-link" to="/services">Explore the menu <ArrowRight size={15} /></Link></div><div className="hero-proof"><span className="proof-icons"><i>✦</i><i>✦</i><i>✦</i></span><span><b>Made personal, always.</b><small>From your first consultation to the final touch.</small></span></div></div>
@@ -108,7 +135,7 @@ function Home() {
     </section>
     <section className="brand-strip"><span>MAKEUP</span><i>✦</i><span>HAIR</span><i>✦</i><span>SKIN</span><i>✦</i><span>CONFIDENCE</span><i>✦</i><span>CELEBRATION</span></section>
     <section className="home-intro content-section"><div className="intro-image-wrap"><Image src={images.studio} alt="Calm, welcoming beauty studio" /><span className="image-note">A softer kind of luxury <i>↗</i></span></div><div className="intro-copy"><Eyebrow icon={<span className="eyebrow-line" />}>The Anu Glamora way</Eyebrow><h2>Beauty is not a mask.<br /><em>It is a mood.</em></h2><p>We believe the best beauty experiences are the ones that leave you feeling understood. Our artists create considered looks around your features, your comfort, and the moment you are stepping into.</p><div className="signature">AG <span>with love, always</span></div><Button to="/about" variant="button-outline">Discover our story</Button></div></section>
-    <section className="service-preview content-section soft-section"><div className="section-heading-row"><SectionTitle eyebrow="The edit" title="A little luxury, made for you." copy="From wedding mornings to ordinary Tuesdays, choose the ritual that meets you where you are." /><Link className="under-link" to="/services">View all services <ArrowRight size={15} /></Link></div><div className="service-grid">{services.length ? services.map((service) => <ServiceCard key={service.id} service={service} />) : <LoadingCards />}</div></section>
+    <section className="service-preview content-section soft-section"><div className="section-heading-row"><SectionTitle eyebrow="The edit" title="A little luxury, made for you." copy="From wedding mornings to ordinary Tuesdays, choose the ritual that meets you where you are." /><Link className="under-link" to="/services">View all services <ArrowRight size={15} /></Link></div>{services.length ? <div className="service-grid">{services.map((service) => <ServiceCard key={service.id} service={service} />)}</div> : <CatalogueStatus {...catalogue} />}</section>
     {offers.length > 0 && <section className="home-offers content-section"><div className="section-heading-row"><SectionTitle eyebrow="A little extra" title="Make your moment even sweeter." copy="Enjoy an active studio offer on your next booking." /><Link className="under-link" to="/offers">View all offers <ArrowRight size={15} /></Link></div><div className="home-offer-grid">{offers.slice(0, 3).map((offer) => <article className="offer-card" key={offer.code}><div><Eyebrow>Limited-time offer</Eyebrow><h3>{offer.discount_type === 'percentage' ? `${offer.discount_value}% off` : `₹${Number(offer.discount_value).toLocaleString('en-IN')} off`}</h3><p>Use code <strong>{offer.code}</strong>{Number(offer.min_order) > 0 ? ` on orders above ₹${Number(offer.min_order).toLocaleString('en-IN')}.` : ' on your next booking.'}</p><small>Valid until {new Date(offer.expires_at).toLocaleDateString('en-IN')}</small></div><Sparkles size={28} /></article>)}</div></section>}
     <section className="experience-section content-section"><SectionTitle eyebrow="More than a makeover" title="The details make the difference." align="center" /><div className="experience-grid"><Experience icon={<Users />} number="01" title="Listen first" copy="A relaxed consultation where your preferences, features, and occasion lead the way." /><Experience icon={<ShieldCheck />} number="02" title="Craft with care" copy="Professional artistry, considered products, and the highest standards of hygiene." /><Experience icon={<Award />} number="03" title="Leave glowing" copy="Not just polished. More confident, more comfortable, and completely yourself." /></div></section>
     <section className="testimonial-section content-section"><div className="testimonial-quote"><Quote size={36} /><blockquote>“The whole experience felt so personal. I looked like myself on my best day — exactly what I wanted.”</blockquote><span>— A studio note from a recent bride</span></div><div className="testimonial-image"><Image src={images.bride} alt="Bridal makeup look" /></div></section>
@@ -125,10 +152,10 @@ function ServiceCard({ service }) {
 
 function Services() {
   usePageTitle('Services');
-  const [allServices, setAllServices] = useState([]);
+  const catalogue = useServiceCatalogue(50);
+  const allServices = catalogue.items;
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
-  useEffect(() => { API.get('/services', { params: { limit: 50 } }).then((r) => setAllServices(r.data.data.items)).catch(() => setAllServices([])); }, []);
   const categories = [...new Map(allServices.filter((service) => service.category_slug).map((service) => [service.category_slug, service.category])).entries()];
   const normalizedSearch = search.trim().toLowerCase();
   const services = allServices.filter((service) => {
@@ -136,7 +163,7 @@ function Services() {
     const matchesSearch = !normalizedSearch || `${service.name} ${service.description} ${service.category}`.toLowerCase().includes(normalizedSearch);
     return matchesCategory && matchesSearch;
   });
-  return <section className="page-section services-page"><div className="page-hero"><Eyebrow>Our menu</Eyebrow><h1>Find your <em>kind of beautiful.</em></h1><p>A considered collection of makeup, hair, and skin experiences. Come as you are; leave feeling luminous.</p></div><div className="service-toolbar"><label className="search-field"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu" aria-label="Search services" /></label><div className="category-pills"><button className={category === 'all' ? 'active' : ''} onClick={() => setCategory('all')}>All services</button>{categories.map(([slug, label]) => <button key={slug} className={category === slug ? 'active' : ''} onClick={() => setCategory(slug)}>{label}</button>)}</div></div><div className="service-grid service-grid-large">{services.map((service) => <ServiceCard service={service} key={service.id} />)}</div>{allServices.length > 0 && !services.length && <EmptyState title="No matching services" copy="Try another search or choose All services." />}{!allServices.length && <EmptyState title="The menu is being prepared" copy="Our services will appear here soon. Contact the studio for availability." />}</section>;
+  return <section className="page-section services-page"><div className="page-hero"><Eyebrow>Our menu</Eyebrow><h1>Find your <em>kind of beautiful.</em></h1><p>A considered collection of makeup, hair, and skin experiences. Come as you are; leave feeling luminous.</p></div><div className="service-toolbar"><label className="search-field"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu" aria-label="Search services" /></label><div className="category-pills"><button className={category === 'all' ? 'active' : ''} onClick={() => setCategory('all')}>All services</button>{categories.map(([slug, label]) => <button key={slug} className={category === slug ? 'active' : ''} onClick={() => setCategory(slug)}>{label}</button>)}</div></div><div className="service-grid service-grid-large">{services.map((service) => <ServiceCard service={service} key={service.id} />)}</div>{allServices.length > 0 && !services.length && <EmptyState title="No matching services" copy="Try another search or choose All services." />}{!allServices.length && <CatalogueStatus {...catalogue} />}</section>;
 }
 
 function ServiceDetail() {
